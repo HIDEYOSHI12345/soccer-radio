@@ -55,7 +55,7 @@ EN_EXCLUDE = ["cricket", "rugby", "tennis", "golf", "f1", "formula 1", "boxing",
 CLAUDE_MODEL = "claude-haiku-5-5"
 
 # X(旧Twitter)のアカウント。X_BEARER_TOKEN が設定されているときだけ使う(従量課金: 1件あたり約0.005ドル)
-X_ACCOUNTS = [("FabrizioRomano", "ロマーノ氏")]  # (ユーザー名, 読み上げるときの呼び名)
+X_ACCOUNTS = [("FabrizioRomano", "")]  # (ユーザー名, 読み上げの頭に付ける呼び名。空なら付けない。例: "ロマーノ氏")
 X_FETCH = 10      # 1アカウントから取得する投稿数(5〜100。取得した件数ぶん課金される)
 X_MAX_ITEMS = 3   # 1アカウントから読み上げに使う最大件数(Xだけで10件が埋まらないようにする)
 X_SKIP_RE = re.compile(r"#ad\b|sponsored|promo code|use code|link in bio|subscribe|giveaway", re.I)
