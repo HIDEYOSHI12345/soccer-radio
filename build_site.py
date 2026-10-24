@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from email.utils import format_datetime
 from pathlib import Path
 
-TITLE = "ファブリシオ・ずんだもん"
+TITLE = "ファブリツィオ・ずんだもん"
 
 
 def die(msg):
