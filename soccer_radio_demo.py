@@ -715,7 +715,7 @@ def main():
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    stamp = now.strftime("%Y%m%d")
+    stamp = now.strftime("%Y%m%d_%H%M")  # 同じ日に作り直しても別のエピソード(別のファイル名・別のID)になるよう、時刻まで入れる
     (out / f"news_{stamp}.txt").write_text(script, encoding="utf-8")
 
     audio_name, credit = None, "なし"
