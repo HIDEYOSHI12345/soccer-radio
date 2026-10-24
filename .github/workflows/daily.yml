@@ -1,0 +1,82 @@
+name: daily-soccer-news
+
+on:
+  schedule:
+    # 毎日 日本時間 5:23(UTC 20:23)に実行。時刻を変えるときは、UTCで書きます(日本時間 - 9時間)
+    - cron: "23 20 * * *"
+  workflow_dispatch: # 手動で実行するボタン(Actionsタブの「Run workflow」)
+
+concurrency:
+  group: daily-soccer-news
+  cancel-in-progress: false
+
+env:
+  TZ: Asia/Tokyo # 原稿の日付・曜日を日本時間にする
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: VOICEVOXエンジンを起動する
+        run: |
+          docker run -d --name voicevox -p 127.0.0.1:50021:50021 voicevox/voicevox_engine:cpu-latest
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:50021/version > /dev/null; then break; fi
+            sleep 5
+          done
+          if ! curl -sf http://127.0.0.1:50021/version; then
+            docker logs voicevox | tail -30
+            echo "VOICEVOXが起動しませんでした"
+            exit 1
+          fi
+
+      - name: ffmpegを用意する
+        run: which ffmpeg || (sudo apt-get update -y && sudo apt-get install -y ffmpeg)
+
+      - name: ニュースの取得・翻訳・音声化
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python3 soccer_radio_demo.py --out out --voice ずんだもん --speed 1.2 --engine http://127.0.0.1:50021
+
+      - name: 公開用のサイト(mp3・Podcastフィード)を作る
+        env:
+          FEED_TOKEN: ${{ secrets.FEED_TOKEN }}
+        run: python3 build_site.py --out out --site site
+
+      - name: サイトをアップロードする
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: GitHub Pagesに公開する
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  keepalive:
+    # 公開リポジトリは、60日間なにも動きがないと自動実行が止まります。止まりにくくするための、念のための手当てです
+    needs: deploy
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: ワークフローを有効のままにする
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow enable daily.yml --repo "$GITHUB_REPOSITORY"
