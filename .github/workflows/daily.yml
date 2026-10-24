@@ -42,7 +42,8 @@ jobs:
       - name: ニュースの取得・翻訳・音声化
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python3 soccer_radio_demo.py --out out --voice ずんだもん --speed 1.2 --engine http://127.0.0.1:50021
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+        run: python3 soccer_radio_demo.py --out out --voice ずんだもん --speed 1.2 --engine http://127.0.0.1:50021 --no-rss --x-max 10
 
       - name: 公開用のサイト(mp3・Podcastフィード)を作る
         env:
