@@ -54,6 +54,12 @@ EN_KEYWORDS = [
 EN_EXCLUDE = ["cricket", "rugby", "tennis", "golf", "f1", "formula 1", "boxing", "nfl", "nba", "darts", "snooker"]
 CLAUDE_MODEL = "claude-haiku-5-5"
 
+# X(旧Twitter)のアカウント。X_BEARER_TOKEN が設定されているときだけ使う(従量課金: 1件あたり約0.005ドル)
+X_ACCOUNTS = [("FabrizioRomano", "ロマーノ氏")]  # (ユーザー名, 読み上げるときの呼び名)
+X_FETCH = 10      # 1アカウントから取得する投稿数(5〜100。取得した件数ぶん課金される)
+X_MAX_ITEMS = 3   # 1アカウントから読み上げに使う最大件数(Xだけで10件が埋まらないようにする)
+X_SKIP_RE = re.compile(r"#ad\b|sponsored|promo code|use code|link in bio|subscribe|giveaway", re.I)
+
 # サッカー以外も混ざるフィード用の絞り込みワード(必要に応じて足してください)
 KEYWORDS = [
     "サッカー", "Jリーグ", "J1", "J2", "J3", "日本代表", "なでしこ", "WEリーグ",
@@ -237,6 +243,63 @@ def parse_feed(data, source):
             "source": source,
         })
     return items
+
+
+# ---------------------------------------------------------------- X(旧Twitter)
+def x_get(token, path, params):
+    url = os.environ.get("X_BASE_URL", "https://api.x.com") + path + "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={"Authorization": "Bearer " + token, "User-Agent": "soccer-radio"})
+    last = None
+    for ctx in _verified_contexts():
+        try:
+            with urllib.request.urlopen(req, timeout=30, context=ctx) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode("utf-8", errors="ignore")[:200]
+            hint = {401: "トークンが正しくありません", 402: "クレジット(残高)が足りません", 403: "権限がありません",
+                    429: "回数制限に達しました"}.get(e.code, "")
+            raise RuntimeError(f"X APIがエラーを返しました(HTTP {e.code} {hint}): {detail}")
+        except urllib.error.URLError as e:
+            if isinstance(e.reason, ssl.SSLError):
+                last = e
+                continue
+            raise
+    raise RuntimeError(f"証明書の検証に失敗しました({last.reason})")
+
+
+def clean_post(text):
+    t = re.sub(r"https?://\S+", " ", text)
+    t = re.sub(r"#\w+", " ", t)
+    t = re.sub(r"[\U00010000-\U0010FFFF\u2600-\u27BF\uFE0F\u200d]", " ", t)  # 絵文字
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def fetch_x_posts(token, username, label, since, limit=X_FETCH, max_items=X_MAX_ITEMS):
+    """アカウントの、本人の元の投稿(リツイート・返信を除く)を、見出し用の形にして返す"""
+    u = x_get(token, "/2/users/by/username/" + urllib.parse.quote(username), {})
+    uid = (u.get("data") or {}).get("id")
+    if not uid:
+        raise RuntimeError(f"@{username} のユーザーIDを取得できませんでした: {str(u)[:150]}")
+    r = x_get(token, f"/2/users/{uid}/tweets", {
+        "max_results": max(5, min(100, limit)),
+        "exclude": "retweets,replies",
+        "tweet.fields": "created_at",
+        "start_time": since.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
+    items = []
+    for tw in r.get("data") or []:
+        text = clean_post(tw.get("text", ""))
+        if len(text) < 15 or X_SKIP_RE.search(text):
+            continue
+        try:
+            d = datetime.fromisoformat(tw["created_at"].replace("Z", "+00:00"))
+        except Exception:
+            d = None
+        items.append({
+            "title": text, "link": f"https://x.com/{username}/status/{tw['id']}", "summary": "",
+            "date": d, "source": f"X @{username}", "x_label": label,
+        })
+    return items[:max_items]
 
 
 # ---------------------------------------------------------------- 英語見出しの翻訳(Claude API)
@@ -538,6 +601,9 @@ def main():
     ap.add_argument("--feeds-json", help="FEEDSを上書きするJSONファイル")
     ap.add_argument("--all-topics", action="store_true", help="日本語記事を「欧州の話題と日本代表」に絞らず、すべて読み上げる")
     ap.add_argument("--no-english", action="store_true", help="英語の見出し(翻訳)を使わない")
+    ap.add_argument("--no-rss", action="store_true", help="RSS(日本語・英語)を使わない(Xだけで試すとき用)")
+    ap.add_argument("--x-max", type=int, default=X_MAX_ITEMS, help="1アカウントから読み上げに使うXの最大件数")
+    ap.add_argument("--no-x", action="store_true", help="X(旧Twitter)の投稿を使わない")
     ap.add_argument("--claude-model", default=CLAUDE_MODEL, help="翻訳に使うClaudeのモデル名")
     ap.add_argument("--insecure", action="store_true", help="RSS取得時の証明書検証を省略する(証明書エラーが直らないときの最後の手段)")
     args = ap.parse_args()
@@ -564,7 +630,11 @@ def main():
     blocked_n = 0
     off_topic_n = 0
 
-    print("== RSS取得 ==")
+    if args.no_rss:
+        feeds = []
+        print("== RSS取得: --no-rss のため飛ばします ==")
+    else:
+        print("== RSS取得 ==")
     for f in feeds:
         name = f["name"]
         try:
@@ -598,6 +668,20 @@ def main():
     if not args.all_topics:
         print(f"除いた見出し(欧州・日本代表の話題ではないもの): {off_topic_n}件")
 
+    x_token = os.environ.get("X_BEARER_TOKEN", "").strip()
+    if args.no_x or not x_token:
+        print("\n== X: " + ("--no-x のため飛ばします" if args.no_x else "X_BEARER_TOKEN が未設定のため飛ばします") + " ==")
+    else:
+        print("\n== X(旧Twitter)の取得 ==")
+        for uname, label in X_ACCOUNTS:
+            try:
+                posts = fetch_x_posts(x_token, uname, label, since, max_items=args.x_max)
+                en_items += posts
+                print(f"  OK   @{uname}: {len(posts)}件")
+            except Exception as e:
+                print(f"  NG   @{uname}: {e}")
+                notes.append(f"X @{uname}: 取得できませんでした")
+
     if en_items:
         key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
         if args.no_english:
@@ -610,6 +694,8 @@ def main():
             try:
                 ja = translate_titles(key, args.claude_model, [i["title"] for i in en_items])
                 for i, t in zip(en_items, ja):
+                    if i.get("x_label"):
+                        t = f"{i['x_label']}によると、" + t
                     i["title_en"], i["title"], i["summary"] = i["title"], t, ""
                 all_items += en_items
                 print("  翻訳できました")
