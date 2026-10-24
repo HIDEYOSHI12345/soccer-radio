@@ -11,6 +11,7 @@
   python build_site.py --out out --site site
 """
 import argparse
+import hashlib
 import html
 import json
 import os
@@ -25,7 +26,7 @@ from datetime import datetime, timezone
 from email.utils import format_datetime
 from pathlib import Path
 
-TITLE = "毎朝のサッカーニュース"
+TITLE = "ファブリシオ・ずんだもん"
 
 
 def die(msg):
@@ -118,7 +119,17 @@ def main():
     with wave.open(str(wav_path)) as w:
         duration = hms(w.getnframes() / w.getframerate())
 
-    make_cover_png(dest / "cover.png")
+    # カバー画像: リポジトリ直下に cover.png / cover.jpg があればそれを使い、なければ自動で作った画像を使う。
+    # アプリが古い画像を覚えていて更新されないことがあるので、ファイル名に中身の目印(ハッシュ)を入れる
+    custom = next((Path(n) for n in ("cover.png", "cover.jpg", "cover.jpeg") if Path(n).is_file()), None)
+    if custom:
+        data = custom.read_bytes()
+        cover_name = f"cover_{hashlib.sha1(data).hexdigest()[:8]}{custom.suffix.lower()}"
+        (dest / cover_name).write_bytes(data)
+        print(f"カバー画像: {custom} を使います({len(data) // 1024}KB)")
+    else:
+        cover_name = "cover.png"
+        make_cover_png(dest / cover_name)
 
     # --- Podcastのフィード
     d = datetime.strptime(meta["date"], "%Y-%m-%d")
@@ -143,7 +154,7 @@ def main():
   <itunes:explicit>false</itunes:explicit>
   <itunes:block>Yes</itunes:block>
   <itunes:category text="Sports"/>
-  <itunes:image href="{e(root)}cover.png"/>
+  <itunes:image href="{e(root)}{e(cover_name)}"/>
   <item>
     <title>{e(ep_title)}</title>
     <description>{e(desc)}</description>
