@@ -3,7 +3,7 @@ name: daily-soccer-news
 on:
   schedule:
     # 毎日 日本時間 5:23(UTC 20:23)に実行。時刻を変えるときは、UTCで書きます(日本時間 - 9時間)
-    - cron: "23 20 * * *"
+    - cron: "37 18 * * *"
   workflow_dispatch: # 手動で実行するボタン(Actionsタブの「Run workflow」)
 
 concurrency:
